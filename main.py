@@ -1,107 +1,96 @@
 import pandas as pd
 import pyodbc
 
-def database_connect(server, database):
-    try:
+class CsvToDatabase:
+
+    SERVER_NAME = 'Jiani_da\MSSQLSERVER04'
+    DATABASE_NAME = 'Python-SQL-CSV'
+    CREATE_TABLE_QUERY = f'''CREATE TABLE master_list ( 
+    Date datetime,
+    Server nvarchar(200),
+    Cost float)'''
+    INSERT_DATA_QUERY = f'''INSERT INTO [Python-SQL-CSV].[dbo].[master_list]
+    (Date,Server,Cost)
+    VALUES(?, ?, ?)'''
+
+    def __init__(self, original_file, new_file):
+        self.original_file = original_file
+        self.new_file = new_file
+
+        self.conn = None
+        self.cursor = None
+
+    def db_connection(self):
         conn = pyodbc.connect(
-        Trusted_Connection='Yes',
-        Driver='{ODBC Driver 17 for SQL Server}',
-        Server=server,
-        Database=database
-        )
+                Trusted_Connection='Yes',
+                Driver='{ODBC Driver 17 for SQL Server}',
+                Server=self.SERVER_NAME,
+                Database=self.DATABASE_NAME
+            )
         cursor = conn.cursor()
         return conn, cursor
 
-    except Exception as e:
-        print(f'Error connecting to the database: {e}')
-        return None, None
+    def is_table_exist(self, table_name):
+        check_table_query = f'SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = "table_name"'
+        self.cursor.execute(check_table_query)
+        count = self.cursor.fetchone()[0]
+        return count > 0
 
-def create_dbtable(original_file,cursor, conn):
-    try:
-        # Read the original csv data
-        masterlist = pd.read_csv(original_file, delimiter=';')
-        masterlist['Date'] = pd.to_datetime(masterlist['Date'])
-        #Create table in database
-        cursor.execute('''
-        CREATE TABLE masterlist (
-            Date datetime,
-            Server nvarchar(200),
-            Cost float
-            )
-        ''')
-        conn.commit()
-        print('Table is Created!')
+    def create_db_table(self):
+        if self.is_table_exist(table_name='master_list'):
+            return
+        self.cursor.execute(self.CREATE_TABLE_QUERY)
+        self.conn.commit()
+        print('Table master_list has been created!')
 
-    except Exception as e:
-        print(f'Error creating table: {e}')
+    def load_original_data(self):
+        master_list = pd.read_csv(self.original_file, delimiter=';')
+        master_list['Date'] = pd.to_datetime(master_list['Date'])
 
-def load_original_data(original_file, cursor, conn):
-    try:
-        masterlist = pd.read_csv(original_file, delimiter=';')
-        for row in masterlist.itertuples():
-            cursor.execute(
-                '''
-                INSERT INTO [Python-SQL-CSV].[dbo].[masterlist]
-                (Date,Server,Cost)
-                VALUES(?, ?, ?)
-                ''',
+        for row in master_list.itertuples():
+            self.cursor.execute(
+                self.INSERT_DATA_QUERY,
                 row.Date,
                 row.Server,
                 row.Cost
             )
-        conn.commit()
-        print('Original Data is loaded.')
+        self.conn.commit()
+        print('Original Data has been loaded.')
 
-    except Exception as e:
-        print(f"Error loading data: {e}")
-
-def load_incremental_data(new_file, cursor, conn):
-    try:
-        incremental_list = pd.read_csv(new_file, delimiter=';')
+    def load_incremental_data(self):
+        incremental_list = pd.read_csv(self.new_file, delimiter=';')
         incremental_list['Date'] = pd.to_datetime(incremental_list['Date'])
-        cursor.execute('SELECT MAX(Date) FROM [Python-SQL-CSV].[dbo].[masterlist]')
-        max_date = cursor.fetchone()[0]
-
-        # If there is no data in the database, set a minium date as 1900-01-01
+        max_date_query = f'SELECT MAX(Date) FROM [Python-SQL-CSV].[dbo].[master_list]'
+        self.cursor.execute(max_date_query)
+        max_date = self.cursor.fetchone()[0]
         if max_date is None:
             max_date = pd.to_datetime('1900-01-01')
 
-        # Filter out incremental data with dates greater than the maximum date in the database
         new_data = incremental_list[incremental_list['Date'] > max_date]
 
-        # If there is new_data, insert the new_data into database
-        if not new_data.empty:
-            for row in new_data.itertuples():
-                cursor.execute(
-                    '''
-                    INSERT INTO [Python-SQL-CSV].[dbo].[masterlist]
-                    (Date,Server,Cost)
-                    VALUES(?, ?, ?)
-                    ''',
-                    row.Date,
-                    row.Server,
-                    row.Cost
-                    )
-                conn.commit()
-            print('Incremental data is loaded.')
-        else:
-                print('No new data to load.')
+        if new_data.empty:
+            print('No new data to load.')
+            return
 
-    except Exception as e:
-        print(f'Error loading incremental data: {e}')
+        for row in new_data.itertuples():
+            self.cursor.execute(
+                self.INSERT_DATA_QUERY,
+                row.Date,
+                row.Server,
+                row.Cost
+            )
+        self.conn.commit()
+        print('Incremental data has been loaded.')
 
+    def close_connection(self):
+        self.conn.close()
 
-server_name = 'Jiani_da\MSSQLSERVER04'
-database_name = 'Python-SQL-CSV'
-original_file = '2023 Jan data.csv'
-new_file = '2023 Mar data.csv'
-# Calling the function to connect to the database
-conn, cursor = database_connect(server_name, database_name)
-# Calling the function to create table in database
-#create_dbtable(original_file, cursor, conn)
-# Calling the function to load the original data
-#load_original_data(original_file, cursor, conn)
-# Calling the function to load the incremental data
-load_incremental_data(new_file, cursor, conn)
-# Close the connection to the database
-conn.close()
+    def run(self):
+        self.conn, self.cursor = self.db_connection()
+        self.create_db_table()
+        self.load_original_data()
+        self.load_incremental_data()
+        self.close_connection()
+
+csv_to_db = CsvToDatabase(original_file='2023 Jan data.csv', new_file='2023 Feb data.csv')
+csv_to_db.run()
