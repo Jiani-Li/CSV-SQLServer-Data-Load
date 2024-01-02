@@ -9,6 +9,7 @@ class CsvToDatabase:
     DATABASE_NAME = 'Python_SQL_CSV'
     DB_TABLE = 'master_list'
     CREATE_TABLE_QUERY = f'''CREATE TABLE [dbo].[{DB_TABLE}] ( 
+    ID INT IDENTITY(1,1) PRIMARY KEY,
     Date datetime,
     Server nvarchar(200),
     Cost float)'''
@@ -116,5 +117,5 @@ class CsvToDatabase:
         self.close_connection()
 
 
-csv_to_db = CsvToDatabase(original_file='2023 Jan data.csv', new_file='2023 Feb data.csv')
+csv_to_db = CsvToDatabase(original_file='2023 Jan data.csv', new_file='2023 Mar data.csv')
 csv_to_db.run()
